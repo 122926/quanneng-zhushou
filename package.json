@@ -1,0 +1,6 @@
+{
+  "name": "quanneng-zhushou-edgeone",
+  "private": true,
+  "type": "module",
+  "description": "全能助手手机网页版 · EdgeOne Pages 部署（静态前端 + 边缘函数调 DeepSeek）"
+}
