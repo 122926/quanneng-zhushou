@@ -31,3 +31,8 @@ _make_*.py
 _patch_*.py
 _verify_*.py
 _sync_*.py
+
+_deploy_drop.zip
+_deploy_flat.zip
+_update_*.py
+_check.js
