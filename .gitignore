@@ -21,3 +21,13 @@ _backup_*/
 # Capacitor 构建产物（云端生成）
 node_modules/
 android/
+
+# 嵌套仓库与其他部署产物
+edgeone/
+_deploy_drop/
+_deploy_flat/
+cloud/
+_make_*.py
+_patch_*.py
+_verify_*.py
+_sync_*.py
