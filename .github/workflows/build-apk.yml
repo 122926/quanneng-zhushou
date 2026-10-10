@@ -25,7 +25,12 @@ jobs:
           java-version: 17
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(command -v sdkmanager); fi
+          echo "using sdkmanager: $SDKMANAGER"
+          "$SDKMANAGER" --install "platforms;android-34" "build-tools;34.0.0" --sdk_root="$ANDROID_HOME"
+          yes | "$SDKMANAGER" --licenses --sdk_root="$ANDROID_HOME"
 
       - name: Install dependencies
         run: npm ci
