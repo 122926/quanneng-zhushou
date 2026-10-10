@@ -1,0 +1,8 @@
+{
+  "appId": "com.quanneng.zhushou",
+  "appName": "全能助手",
+  "webDir": "web",
+  "android": {
+    "allowMixedContent": true
+  }
+}

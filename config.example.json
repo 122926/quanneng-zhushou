@@ -1,0 +1,36 @@
+{
+  "provider": "deepseek",
+  "api_key": "在这里粘贴你的API Key",
+  "base_url": "https://api.deepseek.com/v1/chat/completions",
+  "model": "deepseek-chat",
+  "temperature": 0.7,
+  "max_history": 20,
+  "system_prompts": {},
+  "providers": {
+    "deepseek": {
+      "base_url": "https://api.deepseek.com/v1/chat/completions",
+      "model": "deepseek-chat",
+      "api_key": ""
+    },
+    "volcengine": {
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+      "model": "在这里填你的接入点ID",
+      "api_key": ""
+    }
+  },
+  "mode_routing": {
+    "work": "deepseek",
+    "emotion": "deepseek"
+  },
+  "memory": {
+    "recall_top": 5,
+    "compress_threshold": 16,
+    "compress_batch": 8
+  },
+  "resilience": {
+    "retry_times": 2,
+    "retry_base_sec": 2,
+    "failover": true,
+    "summary_enabled": true
+  }
+}

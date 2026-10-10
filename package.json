@@ -1,0 +1,14 @@
+{
+  "name": "quanneng-zhushou-app",
+  "version": "1.0.0",
+  "description": "全能助手 - 个人 AI 助手（云端记忆 + 个人数据）",
+  "private": true,
+  "scripts": {
+    "sync": "npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/core": "^6.2.0"
+  }
+}

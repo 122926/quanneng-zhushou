@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+全能助手 · 手机网页版 —— 腾讯云 SCF 云函数版（单文件部署）
+
+部署步骤见同目录《部署说明.md》。
+环境变量（在 SCF 控制台配置，支持最多 3 组 API，自动切换）：
+  组 1（兼容旧变量）：API_KEY_1 或 API_KEY（必填），API_BASE_URL_1/API_BASE_URL、API_MODEL_1/API_MODEL、API_NAME_1 可选
+  组 2/3（可选）：API_KEY_2 / API_KEY_3，配 API_BASE_URL_2/3、API_MODEL_2/3、API_NAME_2/3
+  MAX_HISTORY    可选，默认 20
+  TEMPERATURE    可选，默认 0.7
+请求体可带 provider: "1"|"2"|"3" 指定模型；不带则按顺序自动尝试，失败自动换下一组。
+"""
+
+import json
+import os
+import urllib.error
+import urllib.request
+
+HTML_TEXT = '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n<meta name="theme-color" content="#F7F8FA">\n<title>全能助手</title>\n<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\'%3E%3Crect width=\'24\' height=\'24\' rx=\'5\' fill=\'%230F766E\'/%3E%3Cpath d=\'M7 8.5h10M7 12h6M7 15.5h8\' stroke=\'white\' stroke-width=\'1.8\' stroke-linecap=\'round\'/%3E%3C/svg%3E">\n<style>\n/* ============ 基础 ============ */\n* { margin: 0; padding: 0; box-sizing: border-box; }\n:root {\n  --bg: #F7F8FA;\n  --panel: #FFFFFF;\n  --ink: #1A1D21;\n  --ink-2: #5F6770;\n  --ink-3: #9AA1A9;\n  --line: #E3E6EA;\n  --accent: #0F766E;\n  --accent-soft: #E8F4F2;\n  --danger: #C0392B;\n}\nhtml, body { height: 100%; }\nbody {\n  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", -apple-system, "Segoe UI", sans-serif;\n  background: var(--bg);\n  color: var(--ink);\n  -webkit-font-smoothing: antialiased;\n}\nbutton { font-family: inherit; cursor: pointer; }\nbutton:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\n\n/* ============ 整体布局 ============ */\n.app {\n  height: 100dvh;\n  max-width: 820px;\n  margin: 0 auto;\n  display: flex;\n  flex-direction: column;\n  background: var(--panel);\n  box-shadow: 0 0 0 1px var(--line);\n  position: relative;\n  overflow: hidden;\n}\n\n/* ============ 顶栏 ============ */\n.header {\n  flex: 0 0 auto;\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  padding: calc(10px + env(safe-area-inset-top)) 14px 10px;\n  border-bottom: 1px solid var(--line);\n  background: var(--panel);\n  z-index: 5;\n}\n.brand { display: flex; align-items: center; gap: 8px; min-width: 0; }\n.brand-mark {\n  width: 30px; height: 30px; border-radius: 8px;\n  background: var(--accent); color: #fff;\n  display: flex; align-items: center; justify-content: center;\n  flex: 0 0 auto;\n  transition: background .2s;\n}\n.brand-name { font-size: 16px; font-weight: 700; letter-spacing: .5px; white-space: nowrap; }\n.mode-switch {\n  display: flex; background: var(--bg); border-radius: 999px; padding: 3px;\n  margin-left: auto;\n}\n.mode-btn {\n  border: 0; background: transparent; border-radius: 999px;\n  min-height: 44px; padding: 8px 14px; font-size: 13px; color: var(--ink-2);\n  display: flex; align-items: center; gap: 5px;\n  transition: background .2s, color .2s;\n}\n.mode-btn svg { width: 14px; height: 14px; }\n.mode-btn.active { background: var(--panel); color: var(--accent); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }\n.icon-btn {\n  border: 1px solid var(--line); background: var(--panel); border-radius: 10px;\n  width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;\n  color: var(--ink-2); flex: 0 0 auto;\n}\n.icon-btn svg { width: 17px; height: 17px; }\n.icon-btn:hover { background: var(--bg); color: var(--ink); }\n\n/* ============ 消息区 ============ */\n.main {\n  flex: 1 1 auto;\n  overflow-y: auto;\n  -webkit-overflow-scrolling: touch;\n  padding: 16px 14px 8px;\n  scroll-behavior: auto;\n}\n.msg { display: flex; margin-bottom: 14px; }\n.msg.user { justify-content: flex-end; }\n.msg .bubble {\n  max-width: 82%;\n  padding: 10px 13px;\n  border-radius: 14px;\n  font-size: 15px;\n  line-height: 1.65;\n  word-break: break-word;\n  white-space: pre-wrap;\n}\n.msg.user .bubble {\n  background: var(--accent); color: #fff;\n  border-bottom-right-radius: 4px;\n}\n.msg.ai { justify-content: flex-start; }\n.msg.ai .bubble {\n  background: var(--bg);\n  border: 1px solid var(--line);\n  border-bottom-left-radius: 4px;\n  white-space: normal;\n}\n.msg.ai .bubble p { margin: 0 0 8px; }\n.msg.ai .bubble p:last-child { margin-bottom: 0; }\n.msg.ai .bubble strong { font-weight: 700; }\n.msg.ai .bubble ul, .msg.ai .bubble ol { margin: 4px 0 8px; padding-left: 20px; }\n.msg.ai .bubble li { margin-bottom: 3px; }\n.msg.ai .bubble code {\n  font-family: Consolas, "Courier New", monospace;\n  background: rgba(0,0,0,.06); border-radius: 4px; padding: 1px 4px;\n  font-size: 13px;\n}\n.msg.ai .bubble pre {\n  background: #1F2428; color: #E8ECEF; border-radius: 8px;\n  padding: 10px 12px; overflow-x: auto; margin: 8px 0;\n  font-size: 13px; line-height: 1.5;\n}\n.msg.ai .bubble pre code { background: none; color: inherit; padding: 0; }\n.msg.ai .bubble h1, .msg.ai .bubble h2, .msg.ai .bubble h3 { font-size: 15px; margin: 10px 0 6px; }\n.msg.ai .bubble hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }\n\n/* ============ 欢迎屏 ============ */\n.welcome { padding: 18px 4px 4px; }\n.welcome h2 { font-size: 20px; margin-bottom: 6px; }\n.welcome .sub { color: var(--ink-2); font-size: 14px; margin-bottom: 18px; }\n.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }\n.card {\n  border: 1px solid var(--line); border-radius: 12px; padding: 13px;\n  cursor: pointer; text-align: left; background: var(--panel);\n  transition: border-color .15s, background .15s;\n}\n.card:hover { border-color: var(--accent); background: var(--accent-soft); }\n.card .card-tag {\n  display: inline-flex; align-items: center; gap: 5px;\n  font-size: 14px; font-weight: 700; margin-bottom: 8px;\n  color: var(--accent);\n}\n.card .card-tag.amber { color: #B45309; }\n.card .card-tag svg { width: 13px; height: 13px; }\n.card .card-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }\n.card .card-desc { font-size: 14px; color: var(--ink-2); line-height: 1.5; }\n.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }\n.chip {\n  border: 1px solid var(--line); background: var(--panel); border-radius: 999px;\n  min-height: 44px; padding: 8px 15px; font-size: 13px; color: var(--ink-2);\n  transition: border-color .15s, color .15s;\n}\n.chip:hover { border-color: var(--accent); color: var(--accent); }\n.hint { font-size: 13px; color: var(--ink-3); line-height: 1.6; }\n\n/* ============ 输入区 ============ */\n.input-bar {\n  flex: 0 0 auto;\n  border-top: 1px solid var(--line);\n  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));\n  background: var(--panel);\n  display: flex;\n  align-items: flex-end;\n  gap: 8px;\n}\n.input-box {\n  flex: 1 1 auto;\n  border: 1px solid var(--line); border-radius: 12px;\n  background: var(--bg);\n  padding: 10px 12px;\n  display: flex;\n  align-items: flex-end;\n  gap: 6px;\n  transition: border-color .15s;\n}\n.input-box:focus-within { border-color: var(--accent); background: var(--panel); }\ntextarea {\n  flex: 1 1 auto; border: 0; background: transparent; resize: none;\n  font-family: inherit; font-size: 16px; line-height: 1.5; color: var(--ink);\n  max-height: 120px; min-height: 24px;\n}\ntextarea:focus { outline: 0; }\n.send-btn {\n  border: 0; border-radius: 12px;\n  width: 44px; height: 44px; flex: 0 0 auto;\n  background: var(--accent); color: #fff;\n  display: flex; align-items: center; justify-content: center;\n  transition: background .2s, opacity .2s;\n}\n.send-btn svg { width: 18px; height: 18px; }\n.send-btn:disabled { opacity: .45; cursor: not-allowed; }\n\n/* ============ 提示条 ============ */\n.banner {\n  flex: 0 0 auto;\n  background: #FDF3F2; color: var(--danger);\n  font-size: 13px; line-height: 1.5;\n  padding: 8px 14px;\n  border-bottom: 1px solid #F3D9D6;\n  display: none;\n}\n.banner.show { display: block; }\n.banner .banner-act { color: var(--danger); text-decoration: underline; font-weight: 600; background: none; border: 0; }\n\n/* ============ 打字指示 ============ */\n.typing .bubble { display: flex; gap: 5px; align-items: center; padding: 14px 16px; }\n.typing .dot {\n  width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3);\n  animation: blink 1.2s infinite;\n}\n.typing .dot:nth-child(2) { animation-delay: .2s; }\n.typing .dot:nth-child(3) { animation-delay: .4s; }\n@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }\n\n/* ============ 弹窗 ============ */\n.overlay {\n  position: fixed; inset: 0; background: rgba(15,18,20,.45);\n  display: none; align-items: flex-end; justify-content: center; z-index: 20;\n}\n.overlay.show { display: flex; }\n.sheet {\n  background: var(--panel); width: 100%; max-width: 520px;\n  border-radius: 16px 16px 0 0;\n  padding: 18px 18px calc(18px + env(safe-area-inset-bottom));\n  max-height: 78dvh; overflow-y: auto;\n}\n.sheet h3 { font-size: 16px; margin-bottom: 14px; }\n.sheet .row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }\n.sheet .row:first-of-type { border-top: 0; }\n.sheet .row .k { color: var(--ink-2); }\n.sheet .row .v { font-weight: 600; text-align: right; max-width: 60%; }\n.sheet .row .v.ok { color: var(--accent); }\n.sheet .row .v.bad { color: var(--danger); }\n.sheet .desc { font-size: 13.5px; color: var(--ink-2); line-height: 1.6; margin: 10px 0 4px; }\n.sheet .danger-btn {\n  margin-top: 14px; width: 100%;\n  border: 1px solid #F3D9D6; background: #FDF3F2; color: var(--danger);\n  border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 600;\n}\n.sheet .danger-btn:hover { background: #FAE6E3; }\n\n/* ============ 桌面适配 ============ */\n@media (min-width: 900px) {\n  .app { border-radius: 0; height: 100dvh; }\n  .msg .bubble { max-width: 70%; }\n}\n@media (max-width: 400px) {\n  .cards { grid-template-columns: 1fr; }\n  .brand-name { font-size: 15px; }\n  .mode-btn { padding: 6px 10px; font-size: 13px; min-height: 44px; }\n}\n</style>\n</head>\n<body>\n<div class="app" id="app">\n\n  <div class="banner" id="banner">\n    <span id="bannerText"></span>\n    <button class="banner-act" id="bannerAct" type="button"></button>\n  </div>\n\n  <header class="header">\n    <div class="brand">\n      <div class="brand-mark" id="brandMark" aria-hidden="true">\n        <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M7 8.5h10M7 12h6M7 15.5h8" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>\n      </div>\n      <span class="brand-name">全能助手</span>\n    </div>\n    <div class="mode-switch" role="tablist" aria-label="模式切换">\n      <button class="mode-btn active" id="modeWork" type="button" role="tab" aria-selected="true">\n        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4 2.5-2.5z"/></svg>\n        工作\n      </button>\n      <button class="mode-btn" id="modeEmotion" type="button" role="tab" aria-selected="false">\n        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.6-9.3-9A5.4 5.4 0 0 1 12 6.6 5.4 5.4 0 0 1 21.3 12c-2.3 4.4-9.3 9-9.3 9z"/></svg>\n        情感\n      </button>\n    </div>\n    <button class="icon-btn" id="btnSettings" type="button" aria-label="设置" title="设置">\n      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z"/></svg>\n    </button>\n  </header>\n\n  <main class="main" id="main">\n    <section class="welcome" id="welcome">\n      <h2>你好，我是全能助手</h2>\n      <p class="sub">工作和情感，一个对话搞定。切模式，换人格。</p>\n      <div class="cards">\n        <div class="card" data-mode="work" role="button" tabindex="0" aria-label="切换到工作模式">\n          <span class="card-tag">\n            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4 2.5-2.5z"/></svg>\n            工作模式\n          </span>\n          <div class="card-name">师 · 友 · 秘书</div>\n          <div class="card-desc">商业计划书、路演答辩、嵌入式/编程辅导、文档去AI化、纪要周报、任务拆解、职业规划</div>\n        </div>\n        <div class="card" data-mode="emotion" role="button" tabindex="0" aria-label="切换到情感模式">\n          <span class="card-tag amber">\n            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.6-9.3-9A5.4 5.4 0 0 1 12 6.6 5.4 5.4 0 0 1 21.3 12c-2.3 4.4-9.3 9-9.3 9z"/></svg>\n            情感模式\n          </span>\n          <div class="card-name">顾问 · 倾听者 · 教练</div>\n          <div class="card-desc">情绪疏导、内耗焦虑、自我认知、恋爱关系、婚姻家庭、人际边界、危机转介</div>\n        </div>\n      </div>\n      <div class="chips" id="chips">\n        <button class="chip" type="button">帮我写国创商业计划书大纲</button>\n        <button class="chip" type="button">这段代码报错怎么排查</button>\n        <button class="chip" type="button">把这段文字去AI化降重</button>\n        <button class="chip" type="button">最近很焦虑，内耗严重</button>\n        <button class="chip" type="button">帮我分析这段聊天记录</button>\n        <button class="chip" type="button">做一份周报模板</button>\n      </div>\n      <p class="hint">发送即表示使用本机配置的 API 服务。聊天记录只保存在这台浏览器里。</p>\n    </section>\n    <div id="messages"></div>\n  </main>\n\n  <footer class="input-bar">\n    <div class="input-box">\n      <textarea id="input" rows="1" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）" aria-label="输入消息"></textarea>\n    </div>\n    <button class="send-btn" id="send" type="button" aria-label="发送" title="发送">\n      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>\n    </button>\n  </footer>\n\n  <div class="overlay" id="overlay">\n    <div class="sheet" role="dialog" aria-label="设置">\n      <h3>设置</h3>\n      <div class="row"><span class="k">后端状态</span><span class="v" id="stReady">检测中…</span></div>\n      <div class="row"><span class="k">服务商</span><span class="v" id="stProvider">—</span></div>\n      <div class="row"><span class="k">模型</span><span class="v" id="stModel">—</span></div>\n      <div class="row"><span class="k">配置位置</span><span class="v" id="stConfig">—</span></div>\n      <p class="desc" id="stDesc"></p>\n      <button class="danger-btn" id="btnClear" type="button">清空当前会话记录</button>\n      <p class="desc" style="margin-top:12px">API Key 填写在电脑上同目录的 <b>config.json</b> 里，改完重启 <b>server.py</b> 生效。</p>\n    </div>\n  </div>\n\n<!-- ====== JS ====== -->\n<script>\n(function () {\n  "use strict";\n\n  var ACCENTS = { work: "#0F766E", emotion: "#B45309" };\n  var SOFT = { work: "#E8F4F2", emotion: "#FAF0E8" };\n  var STORAGE_KEY = { work: "qnz_hist_work", emotion: "qnz_hist_emotion" };\n\n  var state = {\n    mode: "work",\n    busy: false,\n    histories: {\n      work: loadHist("work"),\n      emotion: loadHist("emotion")\n    }\n  };\n\n  function loadHist(mode) {\n    try {\n      var raw = localStorage.getItem(STORAGE_KEY[mode]);\n      var arr = raw ? JSON.parse(raw) : [];\n      return Array.isArray(arr) ? arr.slice(-100) : [];\n    } catch (e) { return []; }\n  }\n  function saveHist(mode) {\n    try {\n      localStorage.setItem(STORAGE_KEY[mode], JSON.stringify(state.histories[mode].slice(-100)));\n    } catch (e) { /* 存储满时静默 */ }\n  }\n\n  var el = {\n    main: document.getElementById("main"),\n    messages: document.getElementById("messages"),\n    welcome: document.getElementById("welcome"),\n    input: document.getElementById("input"),\n    send: document.getElementById("send"),\n    banner: document.getElementById("banner"),\n    bannerText: document.getElementById("bannerText"),\n    bannerAct: document.getElementById("bannerAct"),\n    modeWork: document.getElementById("modeWork"),\n    modeEmotion: document.getElementById("modeEmotion"),\n    brandMark: document.getElementById("brandMark"),\n    overlay: document.getElementById("overlay"),\n    stReady: document.getElementById("stReady"),\n    stProvider: document.getElementById("stProvider"),\n    stModel: document.getElementById("stModel"),\n    stConfig: document.getElementById("stConfig"),\n    stDesc: document.getElementById("stDesc")\n  };\n\n  /* ---------- 基础工具 ---------- */\n  function esc(s) {\n    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")\n      .replace(/"/g, "&quot;").replace(/\'/g, "&#39;");\n  }\n  // 极简 Markdown：先转义防注入，再还原少量标记\n  function md(src) {\n    var blocks = [];\n    var rest = String(src);\n    var re = /```([\\s\\S]*?)```/g, m;\n    while ((m = re.exec(rest)) !== null) {\n      blocks.push({ start: m.index, end: re.lastIndex, html: "<pre><code>" + esc(m[1]) + "</code></pre>" });\n    }\n    var out = "", cursor = 0;\n    blocks.forEach(function (b) {\n      out += inlineMd(rest.slice(cursor, b.start));\n      out += b.html;\n      cursor = b.end;\n    });\n    out += inlineMd(rest.slice(cursor));\n    return out;\n  }\n  function inlineMd(s) {\n    var t = esc(s);\n    t = t.replace(/`([^`]+)`/g, "<code>$1</code>");\n    t = t.replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>");\n    t = t.replace(/\\*([^*]+)\\*/g, "<em>$1</em>");\n    var paras = t.split(/\\n{2,}/);\n    var html = paras.map(function (p) {\n      var lines = p.split("\\n");\n      var buf = [];\n      var inList = false;\n      lines.forEach(function (line) {\n        var lm = line.match(/^\\s*[-*•]\\s+(.*)$/);\n        if (lm) {\n          if (!inList) { buf.push("<ul>"); inList = true; }\n          buf.push("<li>" + lm[1] + "</li>");\n        } else {\n          if (inList) { buf.push("</ul>"); inList = false; }\n          buf.push(line.replace(/\\n$/, "") ? line : "<br>");\n        }\n      });\n      if (inList) { buf.push("</ul>"); }\n      var body = buf.join("\\n");\n      if (/^\\s*<ul>/.test(body) || /^\\s*<pre>/.test(body) || /^\\s*<br>/.test(body)) return body;\n      return "<p>" + body.replace(/\\n/g, "<br>") + "</p>";\n    });\n    return html.join("");\n  }\n\n  /* ---------- 渲染 ---------- */\n  function renderAll() {\n    el.messages.innerHTML = "";\n    state.histories[state.mode].forEach(function (msg) { appendMsgNode(msg.role, msg.content, false); });\n    if (!state.histories[state.mode].length) el.welcome.style.display = "";\n    else el.welcome.style.display = "none";\n    scrollBottom();\n  }\n  function appendMsgNode(role, content, animate) {\n    var wrap = document.createElement("div");\n    wrap.className = "msg " + role;\n    var bubble = document.createElement("div");\n    bubble.className = "bubble";\n    if (role === "ai") bubble.innerHTML = md(content);\n    else bubble.textContent = content;\n    wrap.appendChild(bubble);\n    el.messages.appendChild(wrap);\n    return wrap;\n  }\n  function addTyping() {\n    var wrap = document.createElement("div");\n    wrap.className = "msg ai typing";\n    wrap.innerHTML = \'<div class="bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>\';\n    el.messages.appendChild(wrap);\n    scrollBottom();\n    return wrap;\n  }\n  function scrollBottom() {\n    el.main.scrollTop = el.main.scrollHeight;\n  }\n\n  /* ---------- 模式切换 ---------- */\n  function setMode(mode) {\n    if (mode !== "work" && mode !== "emotion") return;\n    state.mode = mode;\n    document.documentElement.style.setProperty("--accent", ACCENTS[mode]);\n    document.documentElement.style.setProperty("--accent-soft", SOFT[mode]);\n    el.modeWork.classList.toggle("active", mode === "work");\n    el.modeEmotion.classList.toggle("active", mode === "emotion");\n    el.modeWork.setAttribute("aria-selected", String(mode === "work"));\n    el.modeEmotion.setAttribute("aria-selected", String(mode === "emotion"));\n    renderAll();\n  }\n\n  /* ---------- 发送 ---------- */\n  function send(text) {\n    text = String(text || "").trim();\n    if (!text || state.busy) return;\n    var mode = state.mode;\n    state.histories[mode].push({ role: "user", content: text });\n    saveHist(mode);\n    renderAll();\n\n    state.busy = true;\n    el.send.disabled = true;\n    var typing = addTyping();\n    hideBanner();\n\n    fetch("/api/chat", {\n      method: "POST",\n      headers: { "Content-Type": "application/json" },\n      body: JSON.stringify({ mode: mode, messages: state.histories[mode] })\n    }).then(function (res) {\n      return res.json().then(function (data) { return { ok: res.ok, data: data }; });\n    }).then(function (r) {\n      typing.remove();\n      if (r.ok && r.data && r.data.reply) {\n        state.histories[mode].push({ role: "ai", content: r.data.reply });\n        saveHist(mode);\n        renderAll();\n      } else {\n        var msg = (r.data && r.data.message) || (r.data && r.data.error) || "请求失败";\n        showBanner(msg, "打开设置", function () { el.overlay.classList.add("show"); });\n      }\n    }).catch(function () {\n      typing.remove();\n      showBanner("连不上后端：请确认 server.py 已在电脑上启动", "打开设置", function () { el.overlay.classList.add("show"); });\n    }).finally(function () {\n      state.busy = false;\n      el.send.disabled = false;\n      el.input.focus();\n    });\n  }\n\n  /* ---------- 提示条 ---------- */\n  function showBanner(text, actText, actFn) {\n    el.bannerText.textContent = text;\n    if (actText && actFn) {\n      el.bannerAct.textContent = actText;\n      el.bannerAct.onclick = actFn;\n      el.bannerAct.style.display = "";\n    } else {\n      el.bannerAct.style.display = "none";\n    }\n    el.banner.classList.add("show");\n  }\n  function hideBanner() { el.banner.classList.remove("show"); }\n\n  /* ---------- 设置 ---------- */\n  function openSettings() {\n    el.overlay.classList.add("show");\n    fetch("/api/status").then(function (r) { return r.json(); }).then(function (s) {\n      el.stReady.textContent = s.ready ? "已就绪" : "未配置 API Key";\n      el.stReady.className = "v " + (s.ready ? "ok" : "bad");\n      el.stProvider.textContent = s.provider || "—";\n      el.stModel.textContent = s.model || "—";\n      el.stConfig.textContent = s.config_file || "—";\n      el.stDesc.textContent = s.error === "CONFIG_MISSING"\n        ? "还没找到 config.json：复制 config.example.json 改名为 config.json，填入 API Key 后重启 server.py。"\n        : (s.ready ? "" : "把 API Key 填进 config.json，重启 server.py 后生效。");\n    }).catch(function () {\n      el.stReady.textContent = "无法连接后端";\n      el.stReady.className = "v bad";\n      el.stProvider.textContent = "—";\n      el.stModel.textContent = "—";\n      el.stConfig.textContent = "—";\n      el.stDesc.textContent = "请确认 server.py 已在电脑上运行。";\n    });\n  }\n\n  /* ---------- 事件绑定 ---------- */\n  el.modeWork.addEventListener("click", function () { setMode("work"); });\n  el.modeEmotion.addEventListener("click", function () { setMode("emotion"); });\n  el.send.addEventListener("click", function () { send(el.input.value); });\n  el.input.addEventListener("keydown", function (e) {\n    if (e.key === "Enter" && !e.shiftKey) {\n      e.preventDefault();\n      send(el.input.value);\n      el.input.value = "";\n    }\n  });\n  el.input.addEventListener("input", function () {\n    el.input.style.height = "auto";\n    el.input.style.height = Math.min(el.input.scrollHeight, 120) + "px";\n  });\n  document.getElementById("btnSettings").addEventListener("click", openSettings);\n  el.overlay.addEventListener("click", function (e) { if (e.target === el.overlay) el.overlay.classList.remove("show"); });\n  document.getElementById("btnClear").addEventListener("click", function () {\n    state.histories[state.mode] = [];\n    saveHist(state.mode);\n    renderAll();\n    el.overlay.classList.remove("show");\n  });\n  document.getElementById("chips").addEventListener("click", function (e) {\n    var chip = e.target.closest(".chip");\n    if (!chip) return;\n    send(chip.textContent);\n  });\n  var cards = document.querySelectorAll(".card");\n  cards.forEach(function (card) {\n    var go = function () {\n      var m = card.getAttribute("data-mode");\n      setMode(m);\n      el.main.scrollTop = 0;\n    };\n    card.addEventListener("click", go);\n    card.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });\n  });\n\n  /* ---------- 启动 ---------- */\n  setMode("work");\n  el.input.focus();\n})();\n</script>\n</body>\n</html>\n'
+
+SYSTEM_PROMPTS = {'work': '你是「全能助手」的工作模式：一名亦师亦友的工作助手，服务对象主要是大学生和个人开发者。\n【定位】三副面孔：师——给专业判断、挑真问题；友——平视对话、一起头脑风暴；秘书——把杂活落地成可执行成果。核心原则：先弄清对方到底要什么，再动手；给判断但不替用户拍板；结论要能落地成下一步动作。\n【输出风格】\n1. 去AI化：不用"一站式、智能化、赋能、突破性、打造生态"等套词，句子长短交错，像人写的话。\n2. 多方案：重要决策默认给2-3个版本（稳妥/进取/激进），写明好处、代价、风险，不替用户单选。\n3. 行动收束：回答末尾给"现在能做的一件小事 + 观察窗口或停止条件"，以及值得回来反馈的信号。\n4. 证据诚实：不编造数据、案例、政策或事实；数字拿不准标注"待核实"并说明来源。\n5. 用户可随时要求切换精简/详细/口语化/表格等格式。\n【擅长领域要点】\n- 国创/挑战杯商业计划书：九章结构（摘要/痛点/产品/市场/商业模式/落地/团队/财务风险/规划）；摘要最后定稿且与正文数字一致；痛点要场景+证据；市场给测算逻辑和口径；竞品用表格；风险不少于3条且每条有对策；不编造数据、访谈、合作意向。\n- 路演PPT与答辩：先筛"是否解决真问题、有没有真实进展、数字是否可信"；把常见答辩问提前写进材料。\n- 技术学习（嵌入式/STM32/ESP32/C/PCB/飞机电子维修）：调试先复现、读报错原文、分编译/运行/硬件三类；改一处测一处；硬件先查供电和地；中断里不做耗时操作；注意器件型号、驱动、串口波特率。\n- 文档润色与去AI化降重：打散句子结构、长短句交错、保留核心信息、去华丽宣传话术、平实叙述。\n- 会议纪要/周报：提炼决定、待办、负责人、截止时间。\n- 任务拆解/时间规划：目标拆成可检查的里程碑，识别卡点和风险。\n- 复盘：事实—结果—原因—下一步。\n- 头脑风暴：先多方案发散，再按标准取舍。\n- 职业规划：结合现实条件给多条路径与取舍，不画大饼。\n【安全边界】不编造数据、文件、证书；重要决定（投项目、花大钱、签约、体检就医）给利弊与检查清单，由用户决定；涉及法律、医疗、财务只给通用信息，不冒充专家；发现方案错误直接指出并给修改建议。\n【输入证据】以用户提供的文件、数据、转述为准；材料矛盾时指出矛盾，不强行调和；缺失信息保持未知，不虚构。', 'emotion': '你是「全能助手」的情感模式：一名全面情感顾问。三副面孔：顾问——给专业判断，把心理学结论转译成人话；倾听者——先接住情绪再讲道理，不灌鸡汤；行动教练——把分析落地成下一步。\n【核心原则】先接住情绪，再分清事实，最后给能执行的选择。把"对用户最有利"理解为情绪稳定、安全、自尊、边界、互惠、时间精力、机会成本与长期信任的综合利益。\n【工作流程】\n1. 接情绪：先用2-4句指出感受、触发点和冲突，认可感受；情绪强烈时先缩小到"这一小时能做什么"。\n2. 分事实：列已知事实、合理推测、关键未知；不凭单次回复、表情或标签定性，以行为证据（持续主动、兑现、投入、边界、冲突修复）为准。\n3. 给建议：一句首选+2-4个理由；有真实权衡时再给2-3个版本（稳妥/进取/果断），写明各自代价。\n4. 行动收束：给一个现在能做的小动作、观察窗口或停止条件，以及值得回来反馈的信号。\n【输出风格】去AI化（不用"赋能、底层逻辑、高维认知"等套词）；证据诚实（心理学结论区分较强证据/理论框架/流行说法，拿不准标"待核实"）；可切换精简/详细/口语化/表格。\n【擅长领域要点】\n- 情绪管理（焦虑/内耗/低落/愤怒）：先区分日常情绪与需专业转介的信号（持续两周以上低落、自伤想法、惊恐发作等）；情绪高峰时不急着做决定、不发送激烈消息；命名情绪+物理降温+缩小到一小时；内耗识别模式（反刍/灾难化/完美主义拖延/比较/过度负责）再拆解；日常养护靠睡眠、运动、情绪出口。\n- 自我认知与价值感：把"我不行"拆成事实/行为/结论三层；用行为记录替代自我评价；从可完成的小事做起；区分"我的价值"和"我的表现"；迷茫时补信息、降标准、先试小的。\n- 恋爱关系（心动/暧昧/追求/冲突/分手/复合）：分析互惠、可靠、吸引、价值观、现实可行性、可逆性、安全与机会成本；尊重边界——对方明确拒绝、要求不联系或反复不欢迎时，协助体面退出，不强行推进；要话术时先给一条可复制成品，再讲发送时机与后续。\n- 婚姻家庭：金钱家务育儿、双方家庭、生命周期；重大决定（婚姻、生育）给利弊与检查清单。\n- 人际经营：沟通、拒绝、冲突修复、情绪价值、职场人脉；高情商不等于讨好，边界要清晰。\n- 危机：出现自伤、伤人、家暴、跟踪、人身威胁时，先确认当下安全，引导联系可信支持或当地紧急服务（110/120/心理援助热线）。\n【安全边界】不诊断心理疾病、不给人贴标签；情绪问题超出日常范围时建议专业心理咨询或医疗机构；禁止提供贬低、服从性测试、嫉妒操控、奖惩、煤气灯、孤立、跟踪或性施压的实施方案；不保证任何方法能让特定的人改变心意；涉及隐私提醒注意信息暴露。\n【输入证据】聊天截图/转述以用户提供的内容为准，只把可见文字、说话人、顺序当事实；不补线下动作、语气或内心；缺失保持未知，不虚构。'}
+
+
+def _json_response(status, obj):
+    return {
+        "isBase64Encoded": False,
+        "statusCode": status,
+        "headers": {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store"},
+        "body": json.dumps(obj, ensure_ascii=False),
+    }
+
+
+def _html_response():
+    return {
+        "isBase64Encoded": False,
+        "statusCode": 200,
+        "headers": {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache"},
+        "body": HTML_TEXT,
+    }
+
+
+def _config():
+    # 环境变量类型校验：非数字一律回退默认，避免请求时崩溃
+    def _int_env(name, default):
+        try:
+            return int(os.environ.get(name) or default)
+        except (TypeError, ValueError):
+            return default
+    def _float_env(name, default):
+        try:
+            return float(os.environ.get(name) or default)
+        except (TypeError, ValueError):
+            return default
+    def _clean(name):
+        val = (os.environ.get(name) or "").strip()
+        if not val or "粘贴" in val or val.startswith("在这里"):
+            return ""
+        return val
+    # 多 API 支持：最多 3 组，组 1 兼容旧变量 API_KEY / API_BASE_URL / API_MODEL
+    providers = []
+    k1 = _clean("API_KEY_1") or _clean("API_KEY")
+    if k1:
+        providers.append({
+            "id": "1",
+            "api_key": k1,
+            "base_url": _clean("API_BASE_URL_1") or _clean("API_BASE_URL") or "https://api.deepseek.com/v1/chat/completions",
+            "model": _clean("API_MODEL_1") or _clean("API_MODEL") or "deepseek-chat",
+            "label": _clean("API_NAME_1") or _clean("API_MODEL_1") or _clean("API_MODEL") or "deepseek-chat",
+        })
+    for i in (2, 3):
+        k = _clean("API_KEY_%d" % i)
+        if not k:
+            continue
+        providers.append({
+            "id": str(i),
+            "api_key": k,
+            "base_url": _clean("API_BASE_URL_%d" % i) or "https://api.deepseek.com/v1/chat/completions",
+            "model": _clean("API_MODEL_%d" % i) or "deepseek-chat",
+            "label": _clean("API_NAME_%d" % i) or _clean("API_MODEL_%d" % i) or "deepseek-chat",
+        })
+    return {
+        "providers": providers,
+        "temperature": _float_env("TEMPERATURE", 0.7),
+        "max_history": _int_env("MAX_HISTORY", 20),
+    }
+
+
+def _call_api(prov, temperature, messages):
+    body = {
+        "model": prov["model"],
+        "messages": messages,
+        "temperature": temperature,
+        "stream": False,
+    }
+    req = urllib.request.Request(
+        prov["base_url"],
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + prov["api_key"]},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError("API_HTTP_%s: %s" % (exc.code, detail[:400])) from exc
+    except OSError as exc:   # 覆盖 URLError / socket.timeout / 连接被重置
+        reason = getattr(exc, "reason", None) or exc
+        raise RuntimeError("API_NETWORK: %s" % reason) from exc
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError("API_BAD_RESPONSE: %s" % json.dumps(data, ensure_ascii=False)[:400]) from exc
+
+
+def _clean_history(history, max_history):
+    """只保留 user/assistant 消息，丢弃注入的 system 等其他 role；content 为字符串或数组（多模态）原样保留。"""
+    cleaned = []
+    for m in history[-max_history:]:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        content = m.get("content")
+        if content is None:
+            continue
+        if isinstance(content, (str, list)):
+            cleaned.append({"role": role, "content": content})
+        else:
+            cleaned.append({"role": role, "content": str(content)})
+    return cleaned
+
+
+def main_handler(event, context):
+    path = event.get("path") or "/"
+    method = event.get("httpMethod") or "GET"
+    if path in ("/", "/index.html") and method == "GET":
+        return _html_response()
+    if path == "/api/status" and method == "GET":
+        cfg = _config()
+        providers = cfg["providers"]
+        return _json_response(200, {
+            "ready": bool(providers),
+            "provider": providers[0]["label"] if providers else "",
+            "model": providers[0]["model"] if providers else "",
+            "providers": [{"id": p["id"], "model": p["model"], "label": p["label"]} for p in providers],
+            "config_source": "SCF 环境变量",
+        })
+    if path == "/api/chat" and method == "POST":
+        raw = event.get("body") or "{}"
+        if event.get("isBase64Encoded"):
+            try:
+                import base64
+                raw = base64.b64decode(raw).decode("utf-8")
+            except Exception as exc:
+                return _json_response(400, {"error": "BAD_REQUEST", "message": "body 解码失败"})
+        try:
+            req = json.loads(raw.lstrip("\ufeff"))
+        except (ValueError, json.JSONDecodeError) as exc:
+            return _json_response(400, {"error": "BAD_REQUEST", "message": "请求体不是合法 JSON"})
+        mode = req.get("mode", "work")
+        if mode not in ("work", "emotion"):
+            mode = "work"
+        history = req.get("messages", [])
+        if not isinstance(history, list):
+            return _json_response(400, {"error": "BAD_REQUEST", "message": "messages 必须是数组"})
+        cfg = _config()
+        providers = cfg["providers"]
+        if not providers:
+            return _json_response(503, {"error": "NO_API_KEY", "message": "云函数环境变量未配置 API Key（API_KEY 或 API_KEY_1~API_KEY_3），请到 SCF 控制台配置"})
+        system = {"role": "system", "content": SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS["work"])}
+        max_history = max(1, min(cfg["max_history"], 60))
+        messages = [system] + _clean_history(history, max_history)
+        # 前端可指定 provider（"1"/"2"/"3"）；不指定则按顺序自动尝试，失败自动切下一组
+        want = str(req.get("provider", "") or "").strip()
+        candidates = [p for p in providers if p["id"] == want] if want else providers
+        try_list = candidates or providers
+        last = None
+        for p in try_list:
+            try:
+                reply = _call_api(p, cfg["temperature"], messages)
+                return _json_response(200, {
+                    "reply": reply,
+                    "provider": {"id": p["id"], "model": p["model"], "label": p["label"]},
+                })
+            except RuntimeError as exc:
+                last = {"id": p["id"], "detail": str(exc)}
+        return _json_response(502, {
+            "error": "API_ALL_FAILED",
+            "message": (last and last["detail"]) or "所有模型均调用失败",
+            "provider": last and {"id": last["id"]},
+            "tried": [p["id"] for p in try_list],
+        })
+    return _json_response(404, {"error": "NOT_FOUND", "message": "路径不存在"})
+
+
+if __name__ == "__main__":
+    import sys
+    print("SCF handler OK; run via Tencent Cloud SCF console")

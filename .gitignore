@@ -1,0 +1,23 @@
+# 密钥与本地配置（config.example.json 是模板，保留入库）
+config.json
+
+# 自检截图
+_shots/
+edgeone/public/_shots/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 本地数据库与备份
+memory.db
+*.log
+_backup_*/
+
+# Capacitor 构建产物（云端生成）
+node_modules/
+android/
